@@ -112,6 +112,34 @@ check LOW "UIRequiresFullScreen in source" \
   "Deprecated opt-out of resizing." \
   'UIRequiresFullScreen'
 
+# SwiftUI: ignoresSafeArea is correct for background artwork and wrong for
+# controls. Grep cannot see the view tree, so this reports files where both
+# appear and asks for a scope check rather than declaring a defect.
+IGN=$(xargs -0 grep -l 'ignoresSafeArea' < "$FILES" 2>/dev/null || true)
+if [ -n "$IGN" ]; then
+  MIXED=""
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if grep -qE 'Button|onTapGesture|TextField|Toggle|Slider|Stepper|Menu\(' "$f" 2>/dev/null; then
+      MIXED="${MIXED}${f}"$'\n'
+    fi
+  done <<< "$IGN"
+  n=$(printf '%s' "$MIXED" | grep -c . || true)
+  if [ "${n:-0}" -gt 0 ]; then
+    TOTAL=$((TOTAL + n))
+    printf '%s[MED ]%s ignoresSafeArea in a file that also has controls %s(%d)%s\n' "$YEL" "$OFF" "$DIM" "$n" "$OFF"
+    printf '        %sBackground artwork SHOULD bleed past the safe area; interactive%s\n' "$DIM" "$OFF"
+    printf '        %scontent must stay inside it. On Duo the bars sit on the SIDE, so a%s\n' "$DIM" "$OFF"
+    printf '        %scontrol sharing a container-wide ignoresSafeArea can land under them.%s\n' "$DIM" "$OFF"
+    printf '        %sApply the modifier to the background layer, not the whole stack.%s\n' "$DIM" "$OFF"
+    if [ "$VERBOSE" -eq 1 ]; then printf '%s' "$MIXED" | sed 's/^/        /'
+    else printf '%s' "$MIXED" | head -3 | sed 's/^/        /'
+         [ "$n" -gt 3 ] && printf '        %s… %d more (run with --verbose)%s\n' "$DIM" "$((n-3))" "$OFF"
+    fi
+    echo
+  fi
+fi
+
 # Info.plist sweep — separate, since plists are not in the source list
 PL=$(find "$ROOT" -name 'Info.plist' -not -path '*/Pods/*' -not -path '*/DerivedData/*' -print0 2>/dev/null \
      | xargs -0 grep -l 'UIRequiresFullScreen' 2>/dev/null || true)

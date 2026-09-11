@@ -27,6 +27,16 @@ import xml.etree.ElementTree as ET
 EDGES = {"leading", "trailing", "left", "right", "top", "bottom"}
 SIZES = {"width", "height"}
 
+# Background artwork is SUPPOSED to extend past the safe area — Apple says so
+# explicitly. Only interactive and text content must stay inside it. Flagging
+# a full-bleed background image as a defect trains people to ignore the tool,
+# so decorative views are reported separately and informationally.
+DECORATIVE = {"imageView", "visualEffectView"}
+INTERACTIVE = {"button", "textField", "textView", "switch", "slider",
+               "segmentedControl", "stepper", "datePicker", "pickerView",
+               "searchBar", "collectionView", "tableView", "label",
+               "activityIndicatorView", "pageControl", "progressView"}
+
 
 def scan_file(path):
     try:
@@ -57,7 +67,27 @@ def scan_file(path):
     uses_safe_area = bool(safe_ids) or 'YES' in {
         v.get("useSafeAreas") for v in root.iter() if v.get("useSafeAreas")}
 
+    # id -> element tag, so a constraint can be attributed to the kind of view
+    # it positions, and parent map so a constraint with no firstItem resolves
+    # to the element that owns it.
+    id_tag, parent_of = {}, {}
+    for parent in root.iter():
+        for child in parent:
+            parent_of[child] = parent
+            if child.get("id"):
+                id_tag[child.get("id")] = child.tag
+
+    def owner_tag(constraint):
+        fi = constraint.get("firstItem")
+        if fi:
+            return id_tag.get(fi, "?")
+        node = parent_of.get(constraint)
+        while node is not None and node.tag == "constraints":
+            node = parent_of.get(node)
+        return node.tag if node is not None else "?"
+
     fixed, edge_to_super, safe_anchored, aspect = [], [], 0, 0
+    decorative_super = []
 
     for c in root.iter("constraint"):
         fa = (c.get("firstAttribute") or "").lower()
@@ -85,7 +115,11 @@ def scan_file(path):
             if si in safe_ids:
                 safe_anchored += 1
             elif si in root_view_ids:
-                edge_to_super.append((fa or sa, cid))
+                tag = owner_tag(c)
+                if tag in DECORATIVE:
+                    decorative_super.append((fa or sa, cid, tag))
+                else:
+                    edge_to_super.append((fa or sa, cid, tag))
 
     variations = sum(1 for _ in root.iter("variation"))
 
@@ -93,6 +127,7 @@ def scan_file(path):
         "uses_safe_area": uses_safe_area,
         "fixed": fixed,
         "edge_to_super": edge_to_super,
+        "decorative_super": decorative_super,
         "safe_anchored": safe_anchored,
         "aspect": aspect,
         "variations": variations,
@@ -122,7 +157,7 @@ def main():
         print(f"No .xib or .storyboard files under {a.path}", file=sys.stderr)
         return 2
 
-    no_safe, big_fixed, super_pinned, parse_err = [], [], [], []
+    no_safe, big_fixed, super_pinned, parse_err, decor = [], [], [], [], []
     tot_fixed = tot_var = 0
 
     for f in sorted(files):
@@ -138,6 +173,8 @@ def main():
             big_fixed.append((f, big))
         if r["edge_to_super"]:
             super_pinned.append((f, r["edge_to_super"]))
+        if r["decorative_super"]:
+            decor.append((f, r["decorative_super"]))
 
     if a.json:
         print(json.dumps({
@@ -168,7 +205,7 @@ def main():
     if super_pinned:
         n = sum(len(v) for _, v in super_pinned)
         findings += n
-        print(f"[HIGH] Edges pinned to superview instead of safe area "
+        print(f"[HIGH] Interactive/content edges pinned to superview, not safe area "
               f"({n} constraints in {len(super_pinned)} files)")
         print("        Same failure mode: these ignore the side bars and camera.")
         print("        Re-anchor leading/trailing/top/bottom to the safe-area guide.")
@@ -191,6 +228,20 @@ def main():
             print(f"        {f}  ({len(v)}: {top})")
         if not a.verbose and len(big_fixed) > 5:
             print(f"        … {len(big_fixed)-5} more files (--verbose)")
+        print()
+
+    if decor:
+        n = sum(len(v) for _, v in decor)
+        print(f"[INFO] Decorative views pinned to superview ({n} in {len(decor)} files)")
+        print("        Image and effect views extending past the safe area are")
+        print("        usually INTENTIONAL — Apple wants background artwork to")
+        print("        bleed to the edges. Not counted as findings. Worth a look")
+        print("        only to confirm nothing important sits under the side bars;")
+        print("        a background extension effect can fill the gap if it does.")
+        for f, v in (decor if a.verbose else decor[:3]):
+            print(f"        {f}  ({len(v)})")
+        if not a.verbose and len(decor) > 3:
+            print(f"        … {len(decor)-3} more (--verbose)")
         print()
 
     print(f"[INFO] {tot_fixed} fixed-size constraints total; "
