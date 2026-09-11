@@ -94,7 +94,7 @@ check MED "Custom device/orientation wrappers" \
 
 check MED "Call sites of device/orientation wrappers" \
   "Each of these resolves to an idiom or orientation test. Replace the helper with a size-class decision rather than fixing call sites one by one." \
-  '[^.[:alnum:]_](isIPAD|isIPad|isPad)[^[:alnum:]_(]|DRUtils\\.(isPortrait|isLandscape|getOrientation)'
+  '[^.[:alnum:]_](isIPAD|isIPad|isPad)[^[:alnum:]_(]|[A-Za-z_][A-Za-z0-9_]*\\.(isPortrait|isLandscape|getOrientation|currentOrientation)[^[:alnum:]_(]'
 
 check MED "Hardcoded device dimensions" \
   "Magic numbers copied from one iPhone. Apple publishes no Duo dimensions; query reserved regions at runtime." \
