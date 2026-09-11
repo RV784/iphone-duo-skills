@@ -88,13 +88,56 @@ check HIGH "Symmetric safe-area assumption" \
   "Duo places controls along ONE edge, so left and right insets differ. Inset the rect rather than doubling one side." \
   'safeAreaInsets\.(left|right|top|bottom)[[:space:]]*\*[[:space:]]*2'
 
-check MED "Custom device/orientation wrappers" \
-  "Helpers like isIPAD or isLandscape hide an idiom/orientation check behind a name, so neither this audit nor a reader sees it. Audit the helper itself, then every call site." \
-  '(var|let|func)[[:space:]]+(isIPAD|isIPad|isIphone|isIPhone|isPad|isPhone|isLandscape|isPortrait|getOrientation|currentOrientation|deviceType|screenWidth|screenHeight)\\b'
+# Projects routinely wrap an idiom or orientation test in a helper -- the name
+# then hides the anti-pattern from greps and from readers alike. Helper names
+# are project-specific, so guessing them is useless: instead, DISCOVER the
+# helpers defined in this codebase by looking for declarations whose body
+# touches the underlying API, then find their call sites.
+WRAPPERS=$(xargs -0 awk '
+  # A wrapper has a specific shape: a Bool-returning computed property or
+  # function. Requiring Bool is what keeps this from matching every local
+  # variable that happens to sit near a screen API.
+  {
+    if (match($0, /(var)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[[:space:]]*Bool/) ||
+        match($0, /(func)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[^)]*\)[[:space:]]*->[[:space:]]*Bool/)) {
+      decl = substr($0, RSTART, RLENGTH)
+      sub(/^(var|func)[[:space:]]+/, "", decl)
+      sub(/[[:space:]]*[:(].*$/, "", decl)
+      pending = decl; left = 8
+    }
+    if (left > 0 && $0 ~ /userInterfaceIdiom|UIDevice\.current\.orientation|interfaceOrientation|UIScreen\.main/) {
+      if (pending != "") { print pending; pending = ""; left = 0 }
+    } else if (left > 0) left--
+  }
+' < "$FILES" 2>/dev/null | sort -u | grep -E '^[A-Za-z_][A-Za-z0-9_]*$' || true)
 
-check MED "Call sites of device/orientation wrappers" \
-  "Each of these resolves to an idiom or orientation test. Replace the helper with a size-class decision rather than fixing call sites one by one." \
-  '[^.[:alnum:]_](isIPAD|isIPad|isPad)[^[:alnum:]_(]|[A-Za-z_][A-Za-z0-9_]*\\.(isPortrait|isLandscape|getOrientation|currentOrientation)[^[:alnum:]_(]'
+WRAP_N=$(printf '%s' "$WRAPPERS" | grep -c . || true)
+if [ "${WRAP_N:-0}" -gt 0 ]; then
+  ALT=$(printf '%s' "$WRAPPERS" | paste -sd'|' -)
+  # exclude the declarations themselves, and parameter lists that merely
+  # reuse the name -- neither is a call site
+  SITES=$(search "[^.[:alnum:]_](${ALT})[^[:alnum:]_]" \
+          | grep -vE '(var|let|func)[[:space:]]+('"$ALT"')' \
+          | grep -vE '('"$ALT"')[[:space:]]*:[[:space:]]*Bool' || true)
+  SITE_N=$(printf '%s' "$SITES" | grep -c . || true)
+
+  TOTAL=$((TOTAL + WRAP_N))
+  printf '%s[MED ]%s Project helpers wrapping a device or orientation check %s(%d)%s\n' \
+    "$YEL" "$OFF" "$DIM" "$WRAP_N" "$OFF"
+  printf '        %sThese were found in this codebase, not guessed: each is declared with a%s\n' "$DIM" "$OFF"
+  printf '        %sbody that reads userInterfaceIdiom, an orientation, or the main screen.%s\n' "$DIM" "$OFF"
+  printf '        %sThe wrapper name hides the check from greps and from readers, so replace%s\n' "$DIM" "$OFF"
+  printf '        %sthe helper with a size-class decision rather than patching call sites.%s\n' "$DIM" "$OFF"
+  printf '        %sdiscovered: %s%s\n' "$DIM" "$(printf '%s' "$WRAPPERS" | paste -sd', ' -)" "$OFF"
+  if [ "${SITE_N:-0}" -gt 0 ]; then
+    printf '        %s%d call site(s):%s\n' "$DIM" "$SITE_N" "$OFF"
+    if [ "$VERBOSE" -eq 1 ]; then printf '%s\n' "$SITES" | sed 's/^/        /'
+    else printf '%s\n' "$SITES" | head -3 | sed 's/^/        /'
+         [ "$SITE_N" -gt 3 ] && printf '        %s… %d more (run with --verbose)%s\n' "$DIM" "$((SITE_N-3))" "$OFF"
+    fi
+  fi
+  echo
+fi
 
 check MED "Hardcoded device dimensions" \
   "Magic numbers copied from one iPhone. Apple publishes no Duo dimensions; query reserved regions at runtime." \
