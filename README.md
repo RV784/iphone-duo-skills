@@ -28,7 +28,10 @@ with an audit and works outward:
 Runs standalone, no Claude required:
 
 ```bash
+# Swift / Objective-C
 ./skills/iphone-duo-development/scripts/audit_foldable_readiness.sh /path/to/project
+# .xib / .storyboard — where a UIKit app's layout actually lives
+./skills/iphone-duo-development/scripts/audit_ib_layouts.py /path/to/project
 ```
 
 ```
@@ -46,8 +49,18 @@ iPhone Duo readiness audit — 412 source files under ./MyApp
 It flags `UIScreen.main`, screen-bounds comparisons, device-idiom branching,
 orientation-driven layout, symmetric safe-area math, hardcoded device
 dimensions, fixed widths, standalone bar instances, and `UIRequiresFullScreen`.
-Exits non-zero when it finds something, so it works as a CI gate. Written for
-BSD/macOS tools, since that's where iOS development happens.
+There's a second auditor for Interface Builder, because source greps can't see
+`.xib`/`.storyboard` files — which is where a UIKit app's layout mostly lives. It
+flags layouts that skip safe areas, edges pinned to the superview instead of the
+safe-area guide, and large fixed dimensions. It deliberately does *not* flag
+aspect-ratio or proportional constraints: those are what Apple recommends.
+
+The safe-area findings matter most. Duo moves bars to the **side**, so a view
+pinned to its superview's leading edge renders underneath them — a constraint
+that looks perfectly fine on every current iPhone.
+
+Both exit non-zero on findings, so they work as CI gates. Written for BSD/macOS
+tools and Python 3 standard library, since that's where iOS development happens.
 
 Findings are candidates to review rather than confirmed bugs — a couple of
 patterns can match unrelated custom types. A mature app commonly returns

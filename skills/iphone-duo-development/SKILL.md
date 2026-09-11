@@ -42,13 +42,28 @@ Most of the work of supporting Duo is removing old assumptions, not adding new
 calls. Run this first:
 
 ```bash
-./scripts/audit_foldable_readiness.sh /path/to/project
-# --verbose for every hit; exits 1 when findings exist, so it works as a CI gate
+./scripts/audit_foldable_readiness.sh /path/to/project   # Swift / Obj-C
+./scripts/audit_ib_layouts.py          /path/to/project   # .xib / .storyboard
+# both take --verbose and exit 1 on findings, so they work as CI gates
 ```
 
-It flags `UIScreen.main`, screen-bounds comparisons, device-idiom branching,
-orientation-driven layout, symmetric safe-area math, hardcoded device
-dimensions, fixed widths, standalone bar instances, and `UIRequiresFullScreen`.
+Run **both**. Source greps cannot see the place a UIKit app actually defines its
+layout: Interface Builder files. The IB auditor flags layouts that skip safe
+areas, edges pinned to the superview rather than the safe-area guide, and large
+fixed dimensions — while deliberately *not* flagging aspect-ratio or
+proportional constraints, which are what Apple wants you to use instead.
+
+The source auditor flags `UIScreen.main`, screen-bounds comparisons (including
+component-wise ones like `bounds.width == UIScreen.main.bounds.width`),
+device-idiom branching, orientation-driven layout, custom wrappers that hide
+those checks behind a name, symmetric safe-area math, hardcoded dimensions,
+fixed widths, standalone bar instances, and `UIRequiresFullScreen`.
+
+The safe-area findings from the IB auditor deserve priority attention: because
+Duo moves bars to the **side**, a view pinned to its superview's leading or
+trailing edge renders *underneath* them. On a conventional iPhone the same
+constraint looks fine, which is why this class of bug is invisible until the
+device changes shape.
 Treat the output as **candidates to review** — a couple of patterns can match
 unrelated custom types — but the HIGH items are almost always genuine, and they
 produce *wrong* layouts rather than merely suboptimal ones.
