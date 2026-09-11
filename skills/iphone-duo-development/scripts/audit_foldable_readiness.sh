@@ -74,7 +74,7 @@ check HIGH "Main-screen references" \
 
 check HIGH "Screen-bounds comparison" \
   "A view's bounds equalling the screen's is a common 'am I fullscreen' test. It is false in Split View, in a windowed scene, and on the inner display." \
-  'bounds[[:space:]]*==[[:space:]]*UIScreen|UIScreen\.main\.bounds[[:space:]]*=='
+  'bounds(\.(width|height|size))?[[:space:]]*==[[:space:]]*UIScreen|UIScreen\.main\.bounds(\.(width|height|size))?[[:space:]]*=='
 
 check HIGH "Device-idiom branching" \
   "Idiom tells you what the device is called, not how much space you have. Branch on size classes instead." \
@@ -87,6 +87,14 @@ check HIGH "Orientation-driven layout" \
 check HIGH "Symmetric safe-area assumption" \
   "Duo places controls along ONE edge, so left and right insets differ. Inset the rect rather than doubling one side." \
   'safeAreaInsets\.(left|right|top|bottom)[[:space:]]*\*[[:space:]]*2'
+
+check MED "Custom device/orientation wrappers" \
+  "Helpers like isIPAD or isLandscape hide an idiom/orientation check behind a name, so neither this audit nor a reader sees it. Audit the helper itself, then every call site." \
+  '(var|let|func)[[:space:]]+(isIPAD|isIPad|isIphone|isIPhone|isPad|isPhone|isLandscape|isPortrait|getOrientation|currentOrientation|deviceType|screenWidth|screenHeight)\\b'
+
+check MED "Call sites of device/orientation wrappers" \
+  "Each of these resolves to an idiom or orientation test. Replace the helper with a size-class decision rather than fixing call sites one by one." \
+  '[^.[:alnum:]_](isIPAD|isIPad|isPad)[^[:alnum:]_(]|DRUtils\\.(isPortrait|isLandscape|getOrientation)'
 
 check MED "Hardcoded device dimensions" \
   "Magic numbers copied from one iPhone. Apple publishes no Duo dimensions; query reserved regions at runtime." \
